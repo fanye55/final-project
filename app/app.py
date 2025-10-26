@@ -8,19 +8,8 @@ from pathlib import Path
 import numpy as np
 import argparse
 
-# argparse
-parser = argparse.ArgumentParser()
-parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
-args = parser.parse_args()
-
-epochs = args.epochs
-print(f"训练轮次设置为: {epochs} 轮")
-
-# device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"使用设备: {device}")
 
-# paths
 dataset_dir = Path('./dataset')
 result_dir = Path('./train-result')
 result_dir.mkdir(exist_ok=True)
@@ -28,14 +17,14 @@ result_dir.mkdir(exist_ok=True)
 batch_size = 64
 learning_rate = 0.001
 
-# 全局 scaler，训练集 fit，验证/测试 transform
 global_scaler = StandardScaler()
 
-# Dataset
+
 class IrisDataset(Dataset):
     def __init__(self, feature_dir, label_dir, mode="train"):
         self.features = []
         self.labels = []
+
         feature_files = sorted(feature_dir.glob('*.txt'))
         label_files = sorted(label_dir.glob('*.txt'))
 
@@ -59,7 +48,11 @@ class IrisDataset(Dataset):
         return len(self.features)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.features[idx], dtype=torch.float32), torch.tensor(self.labels[idx], dtype=torch.long)
+        return (
+            torch.tensor(self.features[idx], dtype=torch.float32),
+            torch.tensor(self.labels[idx], dtype=torch.long)
+        )
+
 
 train_dataset = IrisDataset(dataset_dir / 'train' / 'feature', dataset_dir / 'train' / 'label', "train")
 val_dataset = IrisDataset(dataset_dir / 'val' / 'feature', dataset_dir / 'val' / 'label', "val")
@@ -69,7 +62,7 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size)
 test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-# 模型
+
 class CNN_Model(nn.Module):
     def __init__(self):
         super(CNN_Model, self).__init__()
@@ -85,16 +78,13 @@ class CNN_Model(nn.Module):
         x = torch.relu(self.fc1(x))
         return self.fc2(x)
 
-model = CNN_Model().to(device)
-print(model)
 
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+def train_model(epochs):
+    model = CNN_Model().to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-result_file = result_dir / 'training_results.txt'
-
-# 训练
-def train_model():
+    result_file = result_dir / 'training_results.txt'
     with open(result_file, 'w') as f:
         f.write(f"Training Results for {epochs} epochs\n")
         f.write("---------------------------------\n")
@@ -124,10 +114,15 @@ def train_model():
         with open(result_file, 'a') as f:
             f.write(f"Epoch {epoch+1}: Loss {train_loss:.4f}, Acc {train_acc:.2f}%\n")
 
-# 验证和测试
-def evaluate_model(loader, title):
+    return model
+
+
+def evaluate_model(model,loader, title):
     model.eval()
     correct, total = 0, 0
+
+    result_file = result_dir / 'training_results.txt'
+
     with torch.no_grad():
         for inputs, labels in loader:
             inputs, labels = inputs.to(device), labels.to(device)
@@ -135,14 +130,24 @@ def evaluate_model(loader, title):
             _, predicted = torch.max(outputs, 1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
+
     acc = correct / total * 100
     print(f"{title} Accuracy: {acc:.2f}%")
 
     with open(result_file, 'a') as f:
         f.write(f"{title} Accuracy: {acc:.2f}%\n")
+
     return acc
 
-# Run
-train_model()
-evaluate_model(val_loader, "Validation")
-evaluate_model(test_loader, "Test")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
+    args = parser.parse_args()
+    train_model(args.epochs)
+    evaluate_model(val_loader, "Validation")
+    evaluate_model(test_loader, "Test")
+
+
+if __name__ == "__main__":
+    main()
