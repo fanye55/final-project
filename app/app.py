@@ -117,8 +117,7 @@ def train_model(epochs):
     return model
 
 
-def evaluate_model(loader, title):
-    model = CNN_Model().to(device)
+def evaluate_model(model,loader, title):
     model.eval()
     correct, total = 0, 0
 
