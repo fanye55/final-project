@@ -1,0 +1,14 @@
+Training Results for 10 epochs
+---------------------------------
+Epoch 1: Loss 1.0031, Acc 61.90%
+Epoch 2: Loss 0.6607, Acc 92.29%
+Epoch 3: Loss 0.3259, Acc 94.29%
+Epoch 4: Loss 0.1882, Acc 94.86%
+Epoch 5: Loss 0.1392, Acc 95.67%
+Epoch 6: Loss 0.1152, Acc 96.10%
+Epoch 7: Loss 0.1036, Acc 96.43%
+Epoch 8: Loss 0.0940, Acc 96.57%
+Epoch 9: Loss 0.0909, Acc 96.86%
+Epoch 10: Loss 0.0873, Acc 96.86%
+Validation Accuracy: 97.50%
+Test Accuracy: 96.35%
