@@ -10,29 +10,28 @@ from tqdm import tqdm
 from sklearn.metrics import accuracy_score
 
 # -----------------------------
-# 全局常量
+# Global Constants
 # -----------------------------
 DATA_URL = "https://dagshub.com/fanye55/final-project/raw/master/feature/dataset.tar.gz"
 DATA_DIR = "dataset"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-device = DEVICE  # ✅ pytest 要求存在
+device = DEVICE  # ✅ pytest requires this
+
 
 # -----------------------------
-# 下载和解压 dataset
+# Download dataset only when running locally
 # -----------------------------
 def download_dataset():
     if os.path.exists(DATA_DIR):
         print("✅ Dataset already exists")
         return
 
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tar_path = "dataset.tar.gz"
-
     print("📥 Downloading dataset...")
+    tar_path = "dataset.tar.gz"
     urllib.request.urlretrieve(DATA_URL, tar_path)
 
-    print("📦 Extracting dataset...")
+    print("📦 Extracting...")
     with tarfile.open(tar_path, "r:gz") as tar:
         tar.extractall()
 
@@ -41,7 +40,7 @@ def download_dataset():
 
 
 # -----------------------------
-# Dataset Class
+# Dataset Loader
 # -----------------------------
 class IrisTxtDataset(Dataset):
     def __init__(self, split):
@@ -55,11 +54,8 @@ class IrisTxtDataset(Dataset):
         label_files = sorted(os.listdir(label_dir))
 
         for f, l in zip(feature_files, label_files):
-            f_path = os.path.join(feature_dir, f)
-            l_path = os.path.join(label_dir, l)
-
-            feat = np.loadtxt(f_path)
-            label = int(np.loadtxt(l_path))
+            feat = np.loadtxt(os.path.join(feature_dir, f))
+            label = int(np.loadtxt(os.path.join(label_dir, l)))
 
             self.features.append(feat)
             self.labels.append(label)
@@ -78,9 +74,9 @@ class IrisTxtDataset(Dataset):
 
 
 # -----------------------------
-# CNN Model
+# CNN Model (pytest requires)
 # -----------------------------
-class CNN_Model(nn.Module):  # ✅ pytest 需要该类存在且可导入
+class CNN_Model(nn.Module):
     def __init__(self):
         super(CNN_Model, self).__init__()
         self.net = nn.Sequential(
@@ -91,49 +87,60 @@ class CNN_Model(nn.Module):  # ✅ pytest 需要该类存在且可导入
             nn.Flatten(),
             nn.Linear(32 * 4, 64),
             nn.ReLU(),
-            nn.Linear(64, 3)  # ✅ 三分类
+            nn.Linear(64, 3)  # ✅ 3 classes
         )
 
     def forward(self, x):
-        x = x.unsqueeze(1)
+        x = x.unsqueeze(1)  # (B,4)→(B,1,4)
         return self.net(x)
 
 
 # -----------------------------
-# 初始化数据
+# Init loaders ONLY if dataset exists
 # -----------------------------
-download_dataset()
+if os.path.exists(DATA_DIR):
+    train_dataset = IrisTxtDataset("train")
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+else:
+    train_dataset = None
+    train_loader = None
 
-train_dataset = IrisTxtDataset("train")
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)  # ✅ pytest 需要 train_loader
 
 # -----------------------------
-# 评估函数
+# Evaluation function (pytest requires)
 # -----------------------------
-def evaluate_model(model, data_loader, desc="Evaluate"):  # ✅ pytest 需要 evaluate_model
+def evaluate_model(model, data_loader, desc="Eval"):
+    if data_loader is None:
+        print("⚠ No dataset available for evaluation")
+        return 0
+
     model.eval()
     preds, trues = [], []
     with torch.no_grad():
         for X, y in data_loader:
             X, y = X.to(device), y.to(device)
-            outputs = model(X)
-            _, pred = torch.max(outputs, 1)
-            preds.extend(pred.cpu().numpy())
+            preds.extend(torch.argmax(model(X), dim=1).cpu().numpy())
             trues.extend(y.cpu().numpy())
+
     acc = accuracy_score(trues, preds)
     print(f"{desc} Accuracy: {acc:.4f}")
     return acc
 
 
 # -----------------------------
-# 训练入口（手动执行）
+# Main function (Only runs locally)
 # -----------------------------
 if __name__ == "__main__":
+    download_dataset()
+
+    train_dataset = IrisTxtDataset("train")
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+
     model = CNN_Model().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    print("🚀 Start Training...")
+    print("🚀 Training Started...")
     for epoch in range(3):
         model.train()
         loop = tqdm(train_loader, desc=f"Epoch {epoch+1}")
@@ -143,5 +150,6 @@ if __name__ == "__main__":
             loss = criterion(model(X), y)
             loss.backward()
             optimizer.step()
-        evaluate_model(model, train_loader, desc=f"Epoch {epoch+1}")
-    print("✅ Training Done")
+        evaluate_model(model, train_loader, f"Epoch {epoch+1}")
+
+    print("✅ Training finished!")
