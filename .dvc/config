@@ -1,0 +1,7 @@
+[core]
+    remote = myremote
+['remote "myremote"']
+    url = https://dagshub.com/fanye55/final-project.dvc
+    auth = basic
+    user = fanye55
+    password = 42c9f80cc236355bc90a3243db3b4370338eac7e
