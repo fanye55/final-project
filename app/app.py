@@ -1,153 +1,171 @@
+import os
+import argparse
+import urllib.request
+import tarfile
+from tqdm import tqdm
+
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-from sklearn.preprocessing import StandardScaler
-import pandas as pd
-from pathlib import Path
-import numpy as np
-import argparse
+from torch.utils.data import Dataset, DataLoader
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# ========== 配置部分 ==========
+DATASET_URL = "https://dagshub.com/fanye55/final-project/raw/main/dataset.tar.gz"
+DATASET_DIR = "./dataset"
+DATASET_TAR = "./dataset.tar.gz"
+RESULT_DIR = "./train-result"
 
-dataset_dir = Path('./dataset')
-result_dir = Path('./train-result')
-result_dir.mkdir(exist_ok=True)
-
-batch_size = 64
-learning_rate = 0.001
-
-global_scaler = StandardScaler()
+os.makedirs(RESULT_DIR, exist_ok=True)
 
 
-class IrisDataset(Dataset):
-    def __init__(self, feature_dir, label_dir, mode="train"):
+# ========== 下载进度条 ==========
+class ProgressBar:
+    def __init__(self):
+        self.pbar = None
+
+    def __call__(self, block_num, block_size, total_size):
+        if self.pbar is None:
+            self.pbar = tqdm(total=total_size, unit='B', unit_scale=True)
+        downloaded = block_num * block_size
+        self.pbar.update(downloaded - self.pbar.n)
+
+
+# ========== 下载与解压 ==========
+def download_and_extract_dataset():
+    if os.path.exists(DATASET_DIR):
+        print("✅ Dataset already exists. Skipping download.")
+        return
+
+    print("🌍 Downloading dataset from DagsHub...")
+    urllib.request.urlretrieve(DATASET_URL, DATASET_TAR, ProgressBar())
+
+    print("📦 Extracting dataset...")
+    with tarfile.open(DATASET_TAR, "r:gz") as tar:
+        tar.extractall()
+
+    os.remove(DATASET_TAR)
+    print("✅ Dataset ready!")
+
+
+# ========== 自定义数据集 ==========
+class FlowerDataset(Dataset):
+    def __init__(self, root):
         self.features = []
         self.labels = []
 
-        feature_files = sorted(feature_dir.glob('*.txt'))
-        label_files = sorted(label_dir.glob('*.txt'))
+        feature_dir = os.path.join(root, "feature")
+        label_dir = os.path.join(root, "label")
 
-        for feature_file, label_file in zip(feature_files, label_files):
-            feature = np.loadtxt(feature_file, delimiter="\t")
-            label = int(np.loadtxt(label_file))
-            self.features.append(feature)
-            self.labels.append(label)
+        for file in sorted(os.listdir(feature_dir)):
+            if file.endswith(".txt"):
+                feature_path = os.path.join(feature_dir, file)
+                label_path = os.path.join(label_dir, file.replace("feature", "label"))
 
-        self.features = np.array(self.features)
-        self.labels = np.array(self.labels)
+                with open(feature_path, "r") as f:
+                    feature = list(map(float, f.read().strip().split()))
+                    self.features.append(feature)
 
-        if mode == "train":
-            self.features = global_scaler.fit_transform(self.features)
-        else:
-            self.features = global_scaler.transform(self.features)
+                with open(label_path, "r") as f:
+                    label = int(f.read().strip())
+                    self.labels.append(label)
 
-        self.features = self.features.reshape(-1, 1, 4)
+        self.features = torch.tensor(self.features, dtype=torch.float32)
+        self.labels = torch.tensor(self.labels, dtype=torch.long)
 
     def __len__(self):
-        return len(self.features)
+        return len(self.labels)
 
     def __getitem__(self, idx):
-        return (
-            torch.tensor(self.features[idx], dtype=torch.float32),
-            torch.tensor(self.labels[idx], dtype=torch.long)
+        return self.features[idx], self.labels[idx]
+
+
+# ========== 简单MLP分类模型 ==========
+class Classifier(nn.Module):
+    def __init__(self):
+        super(Classifier, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(4, 16),
+            nn.ReLU(),
+            nn.Linear(16, 3)  # 三分类
         )
 
-
-train_dataset = IrisDataset(dataset_dir / 'train' / 'feature', dataset_dir / 'train' / 'label', "train")
-val_dataset = IrisDataset(dataset_dir / 'val' / 'feature', dataset_dir / 'val' / 'label', "val")
-test_dataset = IrisDataset(dataset_dir / 'test' / 'feature', dataset_dir / 'test' / 'label', "test")
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size)
-test_loader = DataLoader(test_dataset, batch_size=batch_size)
-
-
-class CNN_Model(nn.Module):
-    def __init__(self):
-        super(CNN_Model, self).__init__()
-        self.conv1 = nn.Conv1d(1, 8, kernel_size=2)
-        self.conv2 = nn.Conv1d(8, 16, kernel_size=2)
-        self.fc1 = nn.Linear(16 * 2, 64)
-        self.fc2 = nn.Linear(64, 3)
-
     def forward(self, x):
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-        x = x.view(x.size(0), -1)
-        x = torch.relu(self.fc1(x))
-        return self.fc2(x)
+        return self.net(x)
 
 
-def train_model(epochs):
-    model = CNN_Model().to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+# ========== 训练函数 ==========
+def train_model(model, loader, criterion, optimizer, device):
+    model.train()
+    total_loss = 0
+    correct = 0
 
-    result_file = result_dir / 'training_results.txt'
-    with open(result_file, 'w') as f:
-        f.write(f"Training Results for {epochs} epochs\n")
-        f.write("---------------------------------\n")
+    for features, labels in loader:
+        features, labels = features.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(features)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
 
-    for epoch in range(epochs):
-        model.train()
-        running_loss, total, correct = 0, 0, 0
+        total_loss += loss.item() * features.size(0)
+        correct += (outputs.argmax(1) == labels).sum().item()
 
-        for inputs, labels in train_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item()
-            _, predicted = torch.max(outputs, 1)
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
-
-        train_acc = correct / total * 100
-        train_loss = running_loss / len(train_loader)
-
-        print(f"Epoch {epoch+1}/{epochs} Loss: {train_loss:.4f} Acc: {train_acc:.2f}%")
-
-        with open(result_file, 'a') as f:
-            f.write(f"Epoch {epoch+1}: Loss {train_loss:.4f}, Acc {train_acc:.2f}%\n")
-
-    return model
+    return total_loss / len(loader.dataset), correct / len(loader.dataset)
 
 
-def evaluate_model(model, loader, title):
+# ========== 测试 ==========
+def evaluate(model, loader, criterion, device, split_name):
     model.eval()
-    correct, total = 0, 0
-
-    result_file = result_dir / 'training_results.txt'
+    total_loss = 0
+    correct = 0
 
     with torch.no_grad():
-        for inputs, labels in loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            _, predicted = torch.max(outputs, 1)
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
+        for features, labels in loader:
+            features, labels = features.to(device), labels.to(device)
+            outputs = model(features)
+            loss = criterion(outputs, labels)
+            total_loss += loss.item() * features.size(0)
+            correct += (outputs.argmax(1) == labels).sum().item()
 
-    acc = correct / total * 100
-    print(f"{title} Accuracy: {acc:.2f}%")
-
-    with open(result_file, 'a') as f:
-        f.write(f"{title} Accuracy: {acc:.2f}%\n")
-
-    return acc
+    print(f"✅ {split_name} | Loss: {total_loss / len(loader.dataset):.4f} | Acc: {correct / len(loader.dataset):.4f}")
 
 
+# ========== 主入口 ==========
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
+    parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--batch", type=int, default=8)
+    parser.add_argument("--no-download", action="store_true")
     args = parser.parse_args()
 
-    model = train_model(args.epochs)  # Get the trained model
-    evaluate_model(model, val_loader, "Validation")  # Pass model to evaluate function
-    evaluate_model(model, test_loader, "Test")  # Pass model to evaluate function
+    if not args.no_download:
+        download_and_extract_dataset()
+
+    train_ds = FlowerDataset(os.path.join(DATASET_DIR, "train"))
+    val_ds = FlowerDataset(os.path.join(DATASET_DIR, "val"))
+    test_ds = FlowerDataset(os.path.join(DATASET_DIR, "test"))
+
+    train_loader = DataLoader(train_ds, batch_size=args.batch, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch)
+    test_loader = DataLoader(test_ds, batch_size=args.batch)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = Classifier().to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    print(f"🚀 Training on {device} ...")
+
+    for epoch in range(args.epochs):
+        loss, acc = train_model(model, train_loader, criterion, optimizer, device)
+        print(f"📌 Epoch [{epoch+1}/{args.epochs}] | Loss: {loss:.4f} | Acc: {acc:.4f}")
+        evaluate(model, val_loader, criterion, device, "Validation")
+
+    torch.save(model.state_dict(), os.path.join(RESULT_DIR, "model.pth"))
+    print("✅ Model saved!")
+
+    print("🧪 Final Test:")
+    evaluate(model, test_loader, criterion, device, "Test")
 
 
 if __name__ == "__main__":
