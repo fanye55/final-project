@@ -8,7 +8,7 @@ CNN Model	Classifies 3 types of iris flowers
 Custom Dataset	Uses TXT-based features and label storage
 MLflow Logging	Tracks metrics, hyperparameters, and artifacts
 DagsHub Integration	Remote experiment tracking & visualization
-PyTorch Training	GPU acceleration supported
+PyTorch Training	CPU acceleration supported
 📂 Project Structure
 project/
 │
@@ -31,7 +31,7 @@ pip install torch torchvision mlflow dagshub
 Set tracking server environment variables:
 
 set MLFLOW_TRACKING_URI=https://dagshub.com/fanye55/final-project.mlflow
-set MLFLOW_TRACKING_USERNAME=fanye5
+set MLFLOW_TRACKING_USERNAME=fanye55
 set MLFLOW_TRACKING_PASSWORD=<YOUR-PERSONAL-ACCESS-TOKEN>
 
 
