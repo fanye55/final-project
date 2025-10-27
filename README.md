@@ -11,14 +11,23 @@ DagsHub Integration	Remote experiment tracking & visualization
 PyTorch Training	CPU acceleration supported
 📂 Project Structure
 
+
 project/
+
 │
+
 ├─ app/
+
 │  ├─ app.py              # Dataset loader & CNN model
+
 │  └─ __init__.py
+
 │
+
 ├─ mlflow_tracking.py     # Training + MLflow integration
+
 ├─ dataset/               # Auto-downloaded iris dataset
+
 └─ train-result/          # (Optional) Training outputs
 
 📦 Dependencies
