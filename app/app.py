@@ -117,7 +117,7 @@ def train_model(epochs):
     return model
 
 
-def evaluate_model(model,loader, title):
+def evaluate_model(model, loader, title):
     model.eval()
     correct, total = 0, 0
 
@@ -144,9 +144,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
     args = parser.parse_args()
-    train_model(args.epochs)
-    evaluate_model(val_loader, "Validation")
-    evaluate_model(test_loader, "Test")
+
+    model = train_model(args.epochs)  # Get the trained model
+    evaluate_model(model, val_loader, "Validation")  # Pass model to evaluate function
+    evaluate_model(model, test_loader, "Test")  # Pass model to evaluate function
 
 
 if __name__ == "__main__":
